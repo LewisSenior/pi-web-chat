@@ -71,10 +71,17 @@ const DIST_DIR = (() => {
 // pi 세션 런타임
 // ---------------------------------------------------------------------------
 
-let modelRuntime = await ModelRuntime.create();
+// `const`, not `let`: there is exactly one ModelRuntime in this process and
+// every session is built against it. That is the invariant the model list
+// depends on — see createRuntime below.
+const modelRuntime = await ModelRuntime.create();
 
 const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+  // Share the one ModelRuntime. Without this each session builds its own in
+  // isolation, and an extension that registers a provider registers it into
+  // that private copy — so the runtime `/api/models` and `set_model` read never
+  // learns about it, and the provider is invisible to the UI.
+  const services = await createAgentSessionServices({ cwd, modelRuntime });
   return {
     ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
     services,
@@ -384,11 +391,11 @@ async function reloadModelProviders(providers: UICustomProvider[]): Promise<stri
   const previousKeys = new Set(knownCustomProviderKeys);
   knownCustomProviderKeys = new Set(providers.map((p) => p.key));
 
-  try {
-    modelRuntime = await ModelRuntime.create();
-  } catch (err) {
-    return `models.json saved, but reloading failed: ${String(err)}`;
-  }
+  // Deliberately NOT recreated. Sessions are built against this exact instance
+  // (see createRuntime), so replacing it here would leave every live session
+  // holding the previous one — listing and selection would drift apart again,
+  // which is the bug this file already had. The loop below applies the change
+  // to the shared runtime instead, which is now the only one there is.
 
   try {
     for (const entry of entries.values()) {
