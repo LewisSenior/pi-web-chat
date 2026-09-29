@@ -76,6 +76,13 @@ const DIST_DIR = (() => {
 // depends on — see createRuntime below.
 const modelRuntime = await ModelRuntime.create();
 
+// Load extensions into the shared runtime once, before any request is served.
+// Extensions register their providers when services are built against a
+// runtime, so until the first session exists this one holds built-ins only —
+// and the UI's model query runs on page mount and caches for five minutes, so
+// a fresh daemon would otherwise show no extension models for that long.
+await createAgentSessionServices({ cwd: AGENT_CWD, modelRuntime });
+
 const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
   // Share the one ModelRuntime. Without this each session builds its own in
   // isolation, and an extension that registers a provider registers it into
